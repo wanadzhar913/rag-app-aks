@@ -1,0 +1,24 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+
+# Environment (secrets)
+.env
+envs/.env.local
+envs/.env.development
+envs/.env.production
+
+# Docker volumes (local)
+postgres_data/
+minio_data/
+
+# Terraform
+deploy/terraform/*.tfstate*
+deploy/terraform/.terraform/
+
+# IDE
+.idea/
+.vscode/
