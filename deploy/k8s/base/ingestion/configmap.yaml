@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ingestion-config
+  labels:
+    app.kubernetes.io/name: ingestion-worker
+    app.kubernetes.io/part-of: rag-app
+data:
+  ENVIRONMENT: "development"
+  POSTGRES_DB: "rag_app_db"
+  POSTGRES_PORT: "5432"
+  POSTGRES_HOST: "postgres"
+  RABBITMQ_HOST: "rabbitmq"
+  RABBITMQ_PORT: "5672"
+  INGESTION_QUEUE: "document_ingestion"
+  EMBEDDING_MODEL: "text-embedding-3-small"
+  EMBEDDING_DIM: "1536"
+  EMBEDDING_BATCH_SIZE: "20"
+  S3_ENDPOINT_URL: "http://minio:9000"
+  S3_BUCKET: "documents"
+  S3_REGION: "us-east-1"

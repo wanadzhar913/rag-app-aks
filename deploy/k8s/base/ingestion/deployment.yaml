@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingestion-worker
+  labels:
+    app.kubernetes.io/name: ingestion-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: rag-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ingestion-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ingestion-worker
+        app.kubernetes.io/component: worker
+    spec:
+      containers:
+        - name: ingestion-worker
+          image: rag-app/ingestion:latest
+          envFrom:
+            - configMapRef:
+                name: ingestion-config
+            - secretRef:
+                name: ingestion-secrets
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi

@@ -1,0 +1,41 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: rag-app-dev
+
+namePrefix: dev-
+
+resources:
+  - ../../base
+
+patches:
+  - target:
+      kind: Deployment
+      name: backend
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  - target:
+      kind: ConfigMap
+      name: backend-config
+    patch: |
+      - op: replace
+        path: /data/ENVIRONMENT
+        value: "development"
+      - op: replace
+        path: /data/DEBUG
+        value: "true"
+  - target:
+      kind: ConfigMap
+      name: ingestion-config
+    patch: |
+      - op: replace
+        path: /data/ENVIRONMENT
+        value: "development"
+
+images:
+  - name: rag-app/backend
+    newTag: dev
+  - name: rag-app/ingestion
+    newTag: dev
