@@ -7,7 +7,7 @@ the capabilities of language models. Includes web search and database query tool
 from langchain_core.tools.base import BaseTool
 
 from .duckduckgosearch import duckduckgo_search_tool
-from .patient_db_query import (
+from .regulation_db_query import (
     query_document_extractions,
     vector_search_document_extractions,
 )

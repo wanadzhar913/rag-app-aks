@@ -4,21 +4,13 @@ import uuid
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
 
 from app.api.v1.dependencies import get_db
-from app.services.database import DatabaseService
 from app.schemas.auth import SessionResponse
+from app.schemas.sessions import CreateSessionRequest, UpdateSessionRequest
+from app.services.database import DatabaseService
 
 router = APIRouter(prefix="/sessions", tags=["Sessions"])
-
-
-class CreateSessionRequest(BaseModel):
-    name: str = Field(default="", max_length=100)
-
-
-class UpdateSessionRequest(BaseModel):
-    name: str = Field(..., min_length=1, max_length=100)
 
 
 @router.post("", response_model=SessionResponse, status_code=201)

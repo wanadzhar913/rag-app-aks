@@ -9,7 +9,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rag_app} -d ${POSTGRES_DB:-rag_app_db}"]
       interval: 5s
@@ -54,7 +53,7 @@ services:
     ports:
       - "8080:8080"
     env_file:
-      - ./envs/.env.${ENVIRONMENT:-development}
+      - ${ENV_FILE}
     environment:
       POSTGRES_HOST: postgres
       RABBITMQ_HOST: rabbitmq
@@ -74,7 +73,7 @@ services:
       context: ./services/ingestion
       dockerfile: Dockerfile
     env_file:
-      - ./envs/.env.${ENVIRONMENT:-development}
+      - ${ENV_FILE}
     environment:
       POSTGRES_HOST: postgres
       RABBITMQ_HOST: rabbitmq

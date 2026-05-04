@@ -1,64 +1,51 @@
 """Database service for GenAI application."""
 
+from datetime import UTC, datetime
+from functools import lru_cache
 from typing import List, Optional
-from urllib.parse import quote_plus
 
 from fastapi import HTTPException
+from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import QueuePool
 from sqlmodel import (
     Session,
-    SQLModel,
     create_engine,
     select,
 )
 
+from app.core.config import Environment, get_postgres_connection_url, settings
 from app.models.session import Session as ChatSession
-from app.core.config import Environment, settings
+from app.models.ingestion_job import IngestionJob
 from app.core.logging import logger
+
+
+@lru_cache(maxsize=1)
+def get_engine() -> Engine:
+    try:
+        engine = create_engine(
+            get_postgres_connection_url(),
+            pool_pre_ping=True,
+            poolclass=QueuePool,
+            pool_size=settings.POSTGRES_POOL_SIZE,
+            max_overflow=10,
+            pool_timeout=30,
+            pool_recycle=1800,
+        )
+        logger.info("postgres_database_engine_initialized")
+        return engine
+    except SQLAlchemyError as e:
+        logger.error("database_initialization_error — %s", e)
+        if settings.ENVIRONMENT != Environment.PRODUCTION:
+            raise
+        raise
 
 
 class DatabaseService:
     """Handles all GenAI database operations using SQLModel ORM."""
 
-    _instance: Optional["DatabaseService"] = None
-    _initialized: bool = False
-
-    def __new__(cls) -> "DatabaseService":
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
     def __init__(self):
-        if self._initialized:
-            return
-        self._initialized = True
-
-        try:
-            encoded_user = quote_plus(settings.POSTGRES_USER)
-            encoded_password = quote_plus(settings.POSTGRES_PASSWORD)
-
-            connection_url = (
-                f"postgresql+psycopg2://{encoded_user}:{encoded_password}"
-                f"@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
-            )
-
-            self.engine = create_engine(
-                connection_url,
-                pool_pre_ping=True,
-                poolclass=QueuePool,
-                pool_size=settings.POSTGRES_POOL_SIZE,
-                max_overflow=10,
-                pool_timeout=30,
-                pool_recycle=1800,
-            )
-
-            SQLModel.metadata.create_all(self.engine)
-            logger.info("postgres_database_initialized")
-        except SQLAlchemyError as e:
-            logger.error("database_initialization_error — %s", e)
-            if settings.ENVIRONMENT != Environment.PRODUCTION:
-                raise
+        self.engine = get_engine()
 
     async def create_session(self, session_id: str, name: str = "") -> ChatSession:
         """Create a new chat session.
@@ -171,3 +158,53 @@ class DatabaseService:
         except Exception as e:
             # logger.error("database_health_check_failed", error=str(e))
             return False
+
+    async def create_ingestion_job(
+        self,
+        job_id: str,
+        s3_key: str,
+        original_filename: str,
+    ) -> IngestionJob:
+        with Session(self.engine) as session:
+            job = IngestionJob(
+                id=job_id,
+                s3_key=s3_key,
+                original_filename=original_filename,
+                status="queued",
+            )
+            session.add(job)
+            session.commit()
+            session.refresh(job)
+            return job
+
+    async def get_ingestion_job(self, job_id: str) -> Optional[IngestionJob]:
+        with Session(self.engine) as session:
+            return session.get(IngestionJob, job_id)
+
+    async def update_ingestion_job_status(
+        self,
+        job_id: str,
+        status: str,
+        *,
+        error_message: Optional[str] = None,
+        started: bool = False,
+        completed: bool = False,
+    ) -> Optional[IngestionJob]:
+        with Session(self.engine) as session:
+            job = session.get(IngestionJob, job_id)
+            if not job:
+                return None
+
+            job.status = status
+            job.error_message = error_message
+
+            now = datetime.now(UTC)
+            if started and job.started_at is None:
+                job.started_at = now
+            if completed:
+                job.completed_at = now
+
+            session.add(job)
+            session.commit()
+            session.refresh(job)
+            return job

@@ -1,13 +1,20 @@
 """Endpoints for uploading documents and browsing extractions."""
 
-from typing import Any, Optional
+import uuid
+from typing import Optional
 
 import psycopg2
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
-from pydantic import BaseModel
 
-from app.api.v1.dependencies import get_rabbitmq
-from app.core.config import settings
+from app.api.v1.dependencies import get_db, get_rabbitmq
+from app.core.config import get_postgres_connection_kwargs
+from app.schemas.documents import (
+    DocumentExtractionResponse,
+    IngestionJobResponse,
+    DocumentSummary,
+    PaginatedResponse,
+)
+from app.services.database import DatabaseService
 from app.services.rabbitmq import RabbitMQPublisher
 from app.services.storage import upload_file
 
@@ -17,13 +24,7 @@ ALLOWED_CONTENT_TYPES = {"application/pdf"}
 
 
 def _get_connection():
-    return psycopg2.connect(
-        dbname=settings.POSTGRES_DB,
-        user=settings.POSTGRES_USER,
-        password=settings.POSTGRES_PASSWORD,
-        host=settings.POSTGRES_HOST,
-        port=settings.POSTGRES_PORT,
-    )
+    return psycopg2.connect(**get_postgres_connection_kwargs())
 
 
 def _rows_to_dicts(cursor) -> list[dict]:
@@ -31,33 +32,17 @@ def _rows_to_dicts(cursor) -> list[dict]:
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-# ── Schemas ──────────────────────────────────────────────────────────
-
-class DocumentExtractionResponse(BaseModel):
-    id: int
-    document_name: str
-    page_number: Optional[int] = None
-    raw_text: Optional[str] = None
-    tables: Any = []
-    metadata: Any = {}
-    created_at: Optional[str] = None
-
-
-class DocumentSummary(BaseModel):
-    document_name: str
-    total_pages: int
-    total_rows: int
-    has_tables: bool
-    report_date: Optional[str] = None
-    created_at: Optional[str] = None
-
-
-class PaginatedResponse(BaseModel):
-    items: list[DocumentExtractionResponse]
-    total: int
-    limit: int
-    offset: int
-
+def _to_ingestion_job_response(job) -> IngestionJobResponse:
+    return IngestionJobResponse(
+        id=job.id,
+        s3_key=job.s3_key,
+        original_filename=job.original_filename,
+        status=job.status,
+        error_message=job.error_message,
+        created_at=str(job.created_at) if job.created_at else None,
+        started_at=str(job.started_at) if job.started_at else None,
+        completed_at=str(job.completed_at) if job.completed_at else None,
+    )
 
 # ── Upload ───────────────────────────────────────────────────────────
 
@@ -65,6 +50,7 @@ class PaginatedResponse(BaseModel):
 async def upload_document(
     file: UploadFile,
     rmq: RabbitMQPublisher = Depends(get_rabbitmq),
+    db: DatabaseService = Depends(get_db),
 ):
     """Accept a PDF, store it in S3/MinIO, and queue it for ingestion.
     Returns 202 immediately."""
@@ -78,9 +64,22 @@ async def upload_document(
     filename = file.filename or "document.pdf"
 
     s3_key = upload_file(contents, filename, content_type=file.content_type)
-    await rmq.publish_file_ingestion(s3_key=s3_key, original_filename=filename)
+    job_id = str(uuid.uuid4())
+    await db.create_ingestion_job(job_id=job_id, s3_key=s3_key, original_filename=filename)
+
+    try:
+        await rmq.publish_file_ingestion(job_id=job_id, s3_key=s3_key, original_filename=filename)
+    except Exception as exc:
+        await db.update_ingestion_job_status(
+            job_id,
+            "failed",
+            error_message=str(exc),
+            completed=True,
+        )
+        raise
 
     return {
+        "job_id": job_id,
         "status": "accepted",
         "filename": filename,
         "s3_key": s3_key,
@@ -92,6 +91,7 @@ async def upload_document(
 async def upload_documents_batch(
     files: list[UploadFile],
     rmq: RabbitMQPublisher = Depends(get_rabbitmq),
+    db: DatabaseService = Depends(get_db),
 ):
     """Upload multiple PDFs in one request.  Each file is stored in S3
     and queued as a separate ingestion job."""
@@ -109,9 +109,30 @@ async def upload_documents_batch(
         filename = file.filename or "document.pdf"
 
         s3_key = upload_file(contents, filename, content_type=file.content_type)
-        await rmq.publish_file_ingestion(s3_key=s3_key, original_filename=filename)
+        job_id = str(uuid.uuid4())
+        await db.create_ingestion_job(job_id=job_id, s3_key=s3_key, original_filename=filename)
+
+        try:
+            await rmq.publish_file_ingestion(job_id=job_id, s3_key=s3_key, original_filename=filename)
+        except Exception as exc:
+            await db.update_ingestion_job_status(
+                job_id,
+                "failed",
+                error_message=str(exc),
+                completed=True,
+            )
+            results.append({
+                "job_id": job_id,
+                "filename": filename,
+                "status": "failed",
+                "reason": str(exc),
+                "s3_key": s3_key,
+                "size_bytes": len(contents),
+            })
+            continue
 
         results.append({
+            "job_id": job_id,
             "filename": filename,
             "status": "accepted",
             "s3_key": s3_key,
@@ -156,6 +177,14 @@ async def list_documents():
             ]
     finally:
         conn.close()
+
+
+@router.get("/jobs/{job_id}", response_model=IngestionJobResponse)
+async def get_ingestion_job(job_id: str, db: DatabaseService = Depends(get_db)):
+    job = await db.get_ingestion_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Ingestion job not found")
+    return _to_ingestion_job_response(job)
 
 
 @router.get("/extractions", response_model=PaginatedResponse)

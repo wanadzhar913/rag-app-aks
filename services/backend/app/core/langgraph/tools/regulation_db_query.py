@@ -5,14 +5,13 @@ against the document_extractions table in PostgreSQL.
 """
 
 import json
-import os
 from typing import Optional
 
 import psycopg2
 from langchain_core.tools import tool
 from openai import OpenAI
 
-from app.core.config import settings
+from app.core.config import get_postgres_connection_kwargs, settings
 
 
 ALLOWED_TABLE = "document_extractions"
@@ -35,13 +34,7 @@ For semantic similarity search use:
 
 
 def _get_connection():
-    return psycopg2.connect(
-        dbname=os.getenv("POSTGRES_DB", "rag_app_db"),
-        user=os.getenv("POSTGRES_USER", "rag_app"),
-        password=os.getenv("POSTGRES_PASSWORD", "rag_app_pass"),
-        host=os.getenv("POSTGRES_HOST", "localhost"),
-        port=int(os.getenv("POSTGRES_PORT", "5432")),
-    )
+    return psycopg2.connect(**get_postgres_connection_kwargs())
 
 
 def _get_openai_client() -> OpenAI:

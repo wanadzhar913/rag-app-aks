@@ -2,6 +2,7 @@
 
 import os
 from enum import Enum
+from urllib.parse import quote_plus
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -26,7 +27,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "RAG App"
 
     OPENAI_API_KEY: str = ""
-    OPENAI_BASE_URL: str = "https://litellm.n1-research.com"
+    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     DEFAULT_LLM_MODEL: str = "gpt-5-mini"
     MAX_TOKENS: int = 4096
     MAX_LLM_CALL_RETRIES: int = 3
@@ -61,3 +62,22 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def get_postgres_connection_url(driver: str = "psycopg2") -> str:
+    encoded_user = quote_plus(settings.POSTGRES_USER)
+    encoded_password = quote_plus(settings.POSTGRES_PASSWORD)
+    return (
+        f"postgresql+{driver}://{encoded_user}:{encoded_password}"
+        f"@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
+    )
+
+
+def get_postgres_connection_kwargs() -> dict[str, str | int]:
+    return {
+        "dbname": settings.POSTGRES_DB,
+        "user": settings.POSTGRES_USER,
+        "password": settings.POSTGRES_PASSWORD,
+        "host": settings.POSTGRES_HOST,
+        "port": settings.POSTGRES_PORT,
+    }

@@ -1,39 +1,74 @@
-.PHONY: up up-build down down-volumes logs ps ingest \
+.PHONY: check-env-file up up-build down down-volumes logs ps ingest upload \
        backend-logs ingestion-logs \
-       kube-dev kube-prod kube-local kube-diff-local
+       migrate migrate-heads migrate-current migrate-history \
+       migrate-create migrate-stamp migrate-downgrade \
+       kube-dev kube-prod kube-local kube-diff-local kube-diff-dev kube-diff-prod
 
 # ---------- Docker Compose (local development) ----------
 
 ENVIRONMENT ?= development
+ENV_FILE := ./envs/.env.$(ENVIRONMENT)
+COMPOSE := ENV_FILE=$(ENV_FILE) docker compose --env-file $(ENV_FILE)
+BACKEND_DIR := services/backend
+ALEMBIC := cd $(BACKEND_DIR) && ENVIRONMENT=$(ENVIRONMENT) uv run python -m alembic
 
-up:
-	ENVIRONMENT=$(ENVIRONMENT) docker compose up -d
+check-env-file:
+	@test -f "$(ENV_FILE)" || (echo "missing env file: $(ENV_FILE)" && exit 1)
 
-up-build:
-	ENVIRONMENT=$(ENVIRONMENT) docker compose up --build -d
+up: check-env-file
+	$(COMPOSE) up -d
 
-down:
-	docker compose down
+up-build: check-env-file
+	$(COMPOSE) up --build -d
 
-down-volumes:
-	docker compose down -v
+down: check-env-file
+	$(COMPOSE) down
 
-logs:
-	docker compose logs -f
+down-volumes: check-env-file
+	$(COMPOSE) down -v
 
-backend-logs:
-	docker compose logs -f backend
+logs: check-env-file
+	$(COMPOSE) logs -f
 
-ingestion-logs:
-	docker compose logs -f ingestion-worker
+backend-logs: check-env-file
+	$(COMPOSE) logs -f backend
 
-ps:
-	docker compose ps
+ingestion-logs: check-env-file
+	$(COMPOSE) logs -f ingestion-worker
+
+ps: check-env-file
+	$(COMPOSE) ps
 
 upload:
 	@test -n "$(PDF)" || (echo "usage: make upload PDF=path/to/file.pdf" && exit 1)
 	@curl -s -X POST http://localhost:8080/api/v1/documents/upload \
 		-F "file=@$(PDF)" | python3 -m json.tool
+
+# ---------- Alembic / Migrations ----------
+
+migrate:
+	@$(ALEMBIC) upgrade head
+
+migrate-heads:
+	@$(ALEMBIC) heads
+
+migrate-current:
+	@$(ALEMBIC) current
+
+migrate-history:
+	@$(ALEMBIC) history
+
+migrate-create:
+	@test -n "$(MESSAGE)" || (echo "usage: make migrate-create MESSAGE=\"describe change\"" && exit 1)
+	@$(ALEMBIC) revision --autogenerate -m "$(MESSAGE)"
+
+migrate-stamp:
+	@test -n "$(REV)" || (echo "usage: make migrate-stamp REV=head" && exit 1)
+	@$(ALEMBIC) stamp "$(REV)"
+
+migrate-downgrade:
+	@test -n "$(REV)" || (echo "usage: make migrate-downgrade REV=-1" && exit 1)
+	@$(ALEMBIC) downgrade "$(REV)"
 
 # ---------- Kubernetes / Kustomize ----------
 

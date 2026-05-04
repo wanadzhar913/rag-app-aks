@@ -11,8 +11,8 @@ def get_agent(request: Request) -> LangGraphAgent:
     return request.app.state.agent
 
 
-def get_db() -> DatabaseService:
-    return DatabaseService()
+def get_db(request: Request) -> DatabaseService:
+    return request.app.state.db
 
 
 def get_rabbitmq(request: Request) -> RabbitMQPublisher:

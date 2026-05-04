@@ -9,12 +9,16 @@ from app.api.v1.router import v1_router
 from app.core.config import settings
 from app.core.langgraph.graph import LangGraphAgent
 from app.core.logging import logger
+from app.services.database import DatabaseService
 from app.services.rabbitmq import RabbitMQPublisher
 from app.services.storage import ensure_bucket
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    app.state.db = DatabaseService()
+    logger.info("database service ready")
+
     agent = LangGraphAgent()
     await agent.create_graph()
     app.state.agent = agent

@@ -48,17 +48,20 @@ class RabbitMQPublisher:
 
     async def publish_file_ingestion(
         self,
+        job_id: str,
         s3_key: str,
         original_filename: str,
     ) -> None:
         """Queue a single PDF (already in S3) for ingestion."""
         payload = {
+            "job_id": job_id,
             "s3_key": s3_key,
             "original_filename": original_filename,
         }
         await self._publish(payload)
         logger.info(
-            "published ingestion job — s3_key=%s original=%s",
+            "published ingestion job — job_id=%s s3_key=%s original=%s",
+            job_id,
             s3_key,
             original_filename,
         )
