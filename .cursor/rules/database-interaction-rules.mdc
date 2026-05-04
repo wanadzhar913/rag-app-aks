@@ -1,0 +1,9 @@
+---
+description: Specific rules for interacting with databases using async libraries within the db directory.
+globs: **/database.py
+---
+- Async database libraries like asyncpg or aiomysql
+- SQLAlchemy 2.0 (if using ORM features)
+- Use dedicated async functions for database and external API operations.---
+alwaysApply: true
+---
