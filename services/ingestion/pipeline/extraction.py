@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 
 import psycopg2
@@ -141,10 +142,11 @@ def insert_rows(conn, rows: list[dict]):
             cur.execute(
                 """
                 INSERT INTO document_extractions
-                    (document_name, page_number, raw_text, tables, metadata, embedding)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                    (created_at, document_name, page_number, raw_text, tables, metadata, embedding)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
+                    row.get("created_at") or datetime.now(UTC),
                     row["document_name"],
                     row["page_number"],
                     row["raw_text"],
