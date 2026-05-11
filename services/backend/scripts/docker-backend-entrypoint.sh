@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-APP_ENV="${APP_ENV:-${ENVIRONMENT:-development}}"
+APP_ENV="${ENVIRONMENT:-${APP_ENV:-development}}"
 
 load_env_file() {
     env_file="$1"
@@ -57,7 +57,7 @@ echo "Debug Mode: ${DEBUG:-false}"
 
 if [ "${RUN_MIGRATIONS:-1}" = "1" ]; then
     echo "Running Alembic migrations"
-    uv run alembic upgrade head
+    /app/.venv/bin/alembic upgrade head
 fi
 
 exec "$@"

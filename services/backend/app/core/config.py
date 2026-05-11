@@ -2,6 +2,7 @@
 
 import os
 from enum import Enum
+from pathlib import Path
 from urllib.parse import quote_plus
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -11,6 +12,7 @@ _ENVIRONMENT = os.getenv("ENVIRONMENT", "local")
 
 class Environment(str, Enum):
     LOCAL = "local"
+    TEST = "test"
     DEVELOPMENT = "development"
     PRODUCTION = "production"
 
@@ -24,12 +26,21 @@ class Settings(BaseSettings):
 
     ENVIRONMENT: Environment = Environment.LOCAL
     DEBUG: bool = True
-    PROJECT_NAME: str = "RAG App"
+    PROJECT_NAME: str = "Malaysian Road Transport Law Agent (Backend)"
+    DESCRIPTION: str = (
+        "Malaysian Road Transport Law Agent is a tool that helps users to "
+        "find the law related to road transport in Malaysia."
+    )
+    VERSION: str = "1.0.0"
+    API_V1_STR: str = "/api/v1"
+    LOG_FORMAT: str = "console"
+    LOG_DIR: Path = Path("logs")
 
     OPENAI_API_KEY: str = ""
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     DEFAULT_LLM_MODEL: str = "gpt-5-mini"
-    MAX_TOKENS: int = 4096
+    DEFAULT_LLM_TEMPERATURE: float = 0.1
+    MAX_TOKENS: int = 32768
     MAX_LLM_CALL_RETRIES: int = 3
 
     POSTGRES_USER: str = "rag_app"
@@ -48,7 +59,25 @@ class Settings(BaseSettings):
     S3_ACCESS_KEY: str = "minioadmin"
     S3_SECRET_KEY: str = "minioadmin"
     S3_BUCKET: str = "documents"
-    S3_REGION: str = "us-east-1"
+    S3_REGION: str = "ap-southeast-5"
+
+    EMBEDDING_MODEL: str = "text-embedding-3-small"
+    EMBEDDING_DIM: int = 1536
+    EMBEDDING_BATCH_SIZE: int = 20
+
+    RATE_LIMIT_DEFAULT: str = "1000 per day,200 per hour"
+    RATE_LIMIT_CHAT: str = "100 per minute"
+    RATE_LIMIT_CHAT_STREAM: str = "100 per minute"
+    RATE_LIMIT_MESSAGES: str = "200 per minute"
+    RATE_LIMIT_LOGIN: str = "100 per minute"
+    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:8000"
+
+    REDIS_HOST: str = ""
+    REDIS_PORT: int = 6379
+    REDIS_DB: int = 0
+    REDIS_PASSWORD: str = ""
+    REDIS_MAX_CONNECTIONS: int = 20
+    CACHE_TTL_SECONDS: int = 60
 
     CHECKPOINT_TABLES: list[str] = [
         "checkpoint_blobs",
@@ -56,9 +85,13 @@ class Settings(BaseSettings):
         "checkpoints",
     ]
 
-    LONG_TERM_MEMORY_COLLECTION_NAME: str = "rag_app_memory"
-    LONG_TERM_MEMORY_MODEL: str = "gpt-5-mini"
+    LONG_TERM_MEMORY_COLLECTION_NAME: str = "longterm_memory"
+    LONG_TERM_MEMORY_MODEL: str = "gpt-4o-mini"
     LONG_TERM_MEMORY_EMBEDDER_MODEL: str = "text-embedding-3-small"
+    COMPACTION_ENABLED: bool = True
+    COMPACTION_TRIGGER_MESSAGE_COUNT: int = 12
+    COMPACTION_KEEP_RECENT_MESSAGES: int = 4
+    COMPACTION_MAX_SUMMARY_CHARS: int = 4000
 
 
 settings = Settings()

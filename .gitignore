@@ -16,8 +16,10 @@ postgres_data/
 minio_data/
 
 # Terraform
-deploy/terraform/*.tfstate*
-deploy/terraform/.terraform/
+**/.terraform/
+**/*.tfstate*
+**/*.tfplan
+**/.terraform.lock.hcl
 
 # IDE
 .idea/

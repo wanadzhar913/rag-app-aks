@@ -6,10 +6,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import v1_router
+from app.core.cache import cache_service
 from app.core.config import settings
 from app.core.langgraph.graph import LangGraphAgent
 from app.core.logging import logger
 from app.services.database import DatabaseService
+from app.services.memory import memory_service
 from app.services.rabbitmq import RabbitMQPublisher
 from app.services.storage import ensure_bucket
 
@@ -18,6 +20,15 @@ from app.services.storage import ensure_bucket
 async def lifespan(app: FastAPI):
     app.state.db = DatabaseService()
     logger.info("database service ready")
+
+    await cache_service.initialize()
+    logger.info("cache service ready")
+
+    try:
+        await memory_service.initialize()
+        logger.info("memory service ready")
+    except Exception as exc:
+        logger.warning("memory service failed to initialize at startup: %s", exc)
 
     agent = LangGraphAgent()
     await agent.create_graph()
@@ -38,6 +49,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    await cache_service.close()
     await rmq.close()
     logger.info("shutting down")
 

@@ -1,10 +1,17 @@
 """LangGraph Agent built on Deep Agents with DB query and internet search."""
 
+from pathlib import Path
 from typing import AsyncGenerator, Optional
 from urllib.parse import quote_plus
 
 from deepagents import create_deep_agent
-from langchain_core.messages import BaseMessage, convert_to_openai_messages
+from deepagents.backends.filesystem import FilesystemBackend
+from langchain_core.messages import (
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    convert_to_openai_messages,
+)
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
@@ -15,6 +22,7 @@ from app.core.langgraph.tools import tools
 from app.core.logging import logger
 from app.schemas import Message
 from app.services.llm import LLMRegistry
+from app.services.memory import memory_service
 
 
 SYSTEM_PROMPT = """\
@@ -37,6 +45,28 @@ When answering questions:
 - Be concise but thorough.
 """
 
+MEMORY_CONTEXT_PREFIX = """Relevant long-term memory for this session:
+Use this only as supporting context when it is helpful and consistent with the latest user request.
+"""
+
+COMPACTION_SUMMARY_TEMPLATE = """Session summary from earlier conversation:
+{summary}
+"""
+
+COMPACTION_SYSTEM_PROMPT = """\
+Summarize the older portion of this conversation into a compact session memory.
+
+Requirements:
+- Preserve durable user preferences, constraints, and goals.
+- Preserve facts, commitments, and unresolved follow-ups.
+- Omit small talk and transient details.
+- Keep it concise but specific.
+- Return plain text only.
+"""
+
+LANGGRAPH_ROOT = Path(__file__).resolve().parent
+SKILL_SOURCES = ["/skills/statute_analysis/", "/skills/canned_responses/"]
+
 
 class LangGraphAgent:
     """Manages the Deep Agent workflow with DB query and internet search.
@@ -50,6 +80,11 @@ class LangGraphAgent:
         self._graph: Optional[CompiledStateGraph] = None
 
         self.model = LLMRegistry.get(settings.DEFAULT_LLM_MODEL)
+        self._compaction_model = LLMRegistry.get(
+            settings.LONG_TERM_MEMORY_MODEL,
+            base_url=settings.OPENAI_BASE_URL,
+            max_tokens=2048,
+        )
         logger.info(
             "langgraph_agent_initialized — model=%s env=%s",
             settings.DEFAULT_LLM_MODEL,
@@ -108,8 +143,10 @@ class LangGraphAgent:
             self._graph = create_deep_agent(
                 model=self.model,
                 tools=tools,
+                skills=SKILL_SOURCES,
                 system_prompt=SYSTEM_PROMPT,
                 checkpointer=checkpointer,
+                backend=FilesystemBackend(root_dir=LANGGRAPH_ROOT, virtual_mode=True),
             )
 
             logger.info(
@@ -122,6 +159,178 @@ class LangGraphAgent:
                 return None
             raise
         return self._graph
+
+    def _build_config(self, session_id: str, user_id: Optional[str]) -> dict:
+        return {
+            "configurable": {"thread_id": session_id},
+            "metadata": {
+                "user_id": user_id,
+                "session_id": session_id,
+                "environment": settings.ENVIRONMENT.value,
+            },
+        }
+
+    @staticmethod
+    def _coerce_text_content(content: object) -> str:
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            text_parts: list[str] = []
+            for block in content:
+                if isinstance(block, str):
+                    text_parts.append(block)
+                elif isinstance(block, dict) and block.get("type") == "text":
+                    text_parts.append(str(block.get("text", "")))
+            return "".join(text_parts).strip()
+        return str(content).strip()
+
+    @staticmethod
+    def _message_signature(message: Message) -> tuple[str, str]:
+        return (message.role, message.content)
+
+    def _merge_message_lists(self, base_messages: list[Message], incoming_messages: list[Message]) -> list[Message]:
+        if not base_messages:
+            return incoming_messages
+        if not incoming_messages:
+            return base_messages
+
+        max_overlap = min(len(base_messages), len(incoming_messages))
+        overlap = 0
+        for size in range(max_overlap, 0, -1):
+            base_suffix = [self._message_signature(message) for message in base_messages[-size:]]
+            incoming_prefix = [self._message_signature(message) for message in incoming_messages[:size]]
+            if base_suffix == incoming_prefix:
+                overlap = size
+                break
+
+        return [*base_messages, *incoming_messages[overlap:]]
+
+    @staticmethod
+    def _latest_user_query(messages: list[Message]) -> str:
+        for message in reversed(messages):
+            if message.role == "user":
+                return message.content.strip()
+        return ""
+
+    async def _build_memory_context_message(
+        self,
+        session_id: str,
+        messages: list[Message],
+    ) -> Message | None:
+        query = self._latest_user_query(messages)
+        if not query:
+            return None
+
+        memory_context = await memory_service.search(session_id=session_id, query=query)
+        if not memory_context:
+            return None
+
+        return Message(
+            role="system",
+            content=f"{MEMORY_CONTEXT_PREFIX}\n{memory_context}",
+        )
+
+    async def _summarize_messages(self, messages: list[Message]) -> str:
+        if not messages:
+            return ""
+
+        transcript = "\n".join(f"{message.role.upper()}: {message.content}" for message in messages)
+        response = await self._compaction_model.ainvoke(
+            [
+                SystemMessage(content=COMPACTION_SYSTEM_PROMPT),
+                HumanMessage(content=transcript),
+            ]
+        )
+        summary = self._coerce_text_content(response.content)
+        if len(summary) > settings.COMPACTION_MAX_SUMMARY_CHARS:
+            return summary[: settings.COMPACTION_MAX_SUMMARY_CHARS].rstrip()
+        return summary
+
+    async def _maybe_compact_messages(
+        self,
+        session_id: str,
+        messages: list[Message],
+    ) -> list[Message]:
+        if not settings.COMPACTION_ENABLED:
+            return messages
+
+        stored_history = await self.get_chat_history(session_id)
+        use_stored_history = len(stored_history) > len(messages)
+        source_messages = stored_history if use_stored_history else messages
+
+        trigger_count = settings.COMPACTION_TRIGGER_MESSAGE_COUNT
+        keep_recent = settings.COMPACTION_KEEP_RECENT_MESSAGES
+        if len(source_messages) < trigger_count or len(source_messages) <= keep_recent:
+            return messages
+
+        older_messages = source_messages[:-keep_recent]
+        recent_messages = source_messages[-keep_recent:]
+        summary = await self._summarize_messages(older_messages)
+        if not summary:
+            return messages
+
+        await memory_service.add_compaction_summary(
+            session_id=session_id,
+            summary=summary,
+            metadata={
+                "summary_message_count": len(older_messages),
+                "recent_message_count": len(recent_messages),
+            },
+        )
+        await self.clear_chat_history(session_id)
+
+        compacted_history = [
+            Message(
+                role="system",
+                content=COMPACTION_SUMMARY_TEMPLATE.format(summary=summary),
+            ),
+            *recent_messages,
+        ]
+        merged_messages = (
+            self._merge_message_lists(compacted_history, messages)
+            if use_stored_history
+            else compacted_history
+        )
+        logger.info(
+            "session_compacted",
+            session_id=session_id,
+            original_message_count=len(source_messages),
+            compacted_message_count=len(merged_messages),
+        )
+        return merged_messages
+
+    async def _prepare_input_messages(
+        self,
+        session_id: str,
+        messages: list[Message],
+    ) -> list[dict]:
+        effective_messages = await self._maybe_compact_messages(session_id, messages)
+        memory_context_message = await self._build_memory_context_message(session_id, messages)
+        if memory_context_message is not None:
+            effective_messages = [memory_context_message, *effective_messages]
+        return [message.model_dump() for message in effective_messages]
+
+    async def _store_turn_in_memory(
+        self,
+        session_id: str,
+        request_messages: list[Message],
+        assistant_content: str,
+        source: str,
+    ) -> None:
+        if not assistant_content.strip():
+            return
+
+        latest_user_message = next((message for message in reversed(request_messages) if message.role == "user"), None)
+        memory_messages: list[dict] = []
+        if latest_user_message is not None:
+            memory_messages.append(latest_user_message.model_dump())
+        memory_messages.append({"role": "assistant", "content": assistant_content.strip()})
+
+        await memory_service.add(
+            session_id=session_id,
+            messages=memory_messages,
+            metadata={"source": source},
+        )
 
     # ------------------------------------------------------------------
     # Public interface
@@ -136,23 +345,26 @@ class LangGraphAgent:
         if self._graph is None:
             self._graph = await self.create_graph()
 
-        config = {
-            "configurable": {"thread_id": session_id},
-            "metadata": {
-                "user_id": user_id,
-                "session_id": session_id,
-                "environment": settings.ENVIRONMENT.value,
-            },
-        }
-
-        input_messages = [m.model_dump() for m in messages]
+        config = self._build_config(session_id=session_id, user_id=user_id)
+        input_messages = await self._prepare_input_messages(session_id=session_id, messages=messages)
 
         try:
             response = await self._graph.ainvoke(
                 {"messages": input_messages},
                 config=config,
             )
-            return self._extract_messages(response["messages"])
+            response_messages = self._extract_messages(response["messages"])
+            latest_assistant = next(
+                (message.content for message in reversed(response_messages) if message.role == "assistant"),
+                "",
+            )
+            await self._store_turn_in_memory(
+                session_id=session_id,
+                request_messages=messages,
+                assistant_content=latest_assistant,
+                source="chat_response",
+            )
+            return response_messages
         except Exception as exc:
             logger.error("get_response failed — %s", exc)
             raise
@@ -166,16 +378,9 @@ class LangGraphAgent:
         if self._graph is None:
             self._graph = await self.create_graph()
 
-        config = {
-            "configurable": {"thread_id": session_id},
-            "metadata": {
-                "user_id": user_id,
-                "session_id": session_id,
-                "environment": settings.ENVIRONMENT.value,
-            },
-        }
-
-        input_messages = [m.model_dump() for m in messages]
+        config = self._build_config(session_id=session_id, user_id=user_id)
+        input_messages = await self._prepare_input_messages(session_id=session_id, messages=messages)
+        streamed_chunks: list[str] = []
 
         try:
             async for token, _ in self._graph.astream(
@@ -184,11 +389,20 @@ class LangGraphAgent:
                 stream_mode="messages",
             ):
                 try:
-                    if token.content:
-                        yield token.content
+                    chunk = self._coerce_text_content(token.content)
+                    if chunk:
+                        streamed_chunks.append(chunk)
+                        yield chunk
                 except Exception as tok_err:
                     logger.error("token processing error — %s", tok_err)
                     continue
+            if streamed_chunks:
+                await self._store_turn_in_memory(
+                    session_id=session_id,
+                    request_messages=messages,
+                    assistant_content="".join(streamed_chunks),
+                    source="chat_stream",
+                )
         except Exception as exc:
             logger.error("stream processing error — %s", exc)
             raise
@@ -225,8 +439,9 @@ class LangGraphAgent:
     @staticmethod
     def _extract_messages(messages: list[BaseMessage]) -> list[Message]:
         openai_msgs = convert_to_openai_messages(messages)
-        return [
-            Message(role=m["role"], content=str(m["content"]))
-            for m in openai_msgs
-            if m["role"] in ("assistant", "user") and m["content"]
-        ]
+        extracted_messages: list[Message] = []
+        for message in openai_msgs:
+            content = LangGraphAgent._coerce_text_content(message["content"])
+            if message["role"] in ("assistant", "user") and content:
+                extracted_messages.append(Message(role=message["role"], content=content))
+        return extracted_messages

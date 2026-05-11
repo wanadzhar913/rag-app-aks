@@ -3,7 +3,7 @@ FROM python:3.13-slim
 # Set non-sensitive environment variables
 ARG APP_ENV=production
 
-ENV APP_ENV=${ENVIRONMENT} \
+ENV APP_ENV=${APP_ENV} \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONHASHSEED=random \
@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml ./
 RUN uv venv && . .venv/bin/activate && uv pip install -e .
 
 COPY . .
