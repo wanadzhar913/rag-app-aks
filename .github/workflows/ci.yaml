@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker-builds:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - service: backend
+            context: services/backend
+          - service: ingestion
+            context: services/ingestion
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.service }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: false
+          tags: local/${{ matrix.service }}:${{ github.sha }}
+
+  manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: imranismail/setup-kustomize@v2
+        with:
+          kustomize-version: "5.4.2"
+
+      - name: Build Argo CD bootstrap manifests
+        run: |
+          kustomize build deploy/argocd/bootstrap/development >/dev/null
+          kustomize build deploy/argocd/bootstrap/production >/dev/null
+
+      - name: Build platform overlays
+        run: |
+          kustomize build deploy/platform/overlays/development >/dev/null
+          kustomize build deploy/platform/overlays/production >/dev/null
+
+      - name: Build app overlays
+        run: |
+          kustomize build deploy/k8s/overlays/local >/dev/null
+          kustomize build deploy/k8s/overlays/development >/dev/null
+          kustomize build deploy/k8s/overlays/production >/dev/null
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive infra/terraform
+
+      - name: Validate bootstrap module
+        working-directory: infra/terraform/bootstrap
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Validate platform module
+        working-directory: infra/terraform/platform
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Validate dev environment
+        working-directory: infra/terraform/environments/dev
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Validate prod environment
+        working-directory: infra/terraform/environments/prod
+        run: |
+          terraform init -backend=false
+          terraform validate

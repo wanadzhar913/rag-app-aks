@@ -1,10 +1,40 @@
 # Harness Engineering with Malaysian Road Transport Legal Researcher Agents on AKS (Azure Kubernetes Service)
 
-This repository now includes a GitOps-oriented Azure deployment layout for the FastAPI backend and ingestion worker.
+> This project is a work in progress (due to a lot of moving parts!).
+
+This repository contains code for building a team of Malaysian Road Transport Legal Researcher Agents. We take important legal documents, list of fines and penalties, equip the Agents with internet search in order for it to be a useful pseudo-legal advisor. **Please obey the law and be careful while driving!**
+
+Also, I built this primarily to gain experience in [Harness Engineering](https://www.anthropic.com/engineering/harness-design-long-running-apps), Azure DevOps & Terraform, as well as GitOps.
 
 ## What makes a good Harness?
 
+| Harness Component | Have we built this? | Point to specific file |
+| --- | --- | --- |
+| While Loop & Context Control | ✅ | `services/backend/app/core/langgraph/graph.py` |
+| Tools & Skills | ✅ | `services/backend/app/core/langgraph/tools/__init__.py`, `services/backend/app/core/langgraph/skills/statute_analysis/SKILL.md` |
+| Session Persistence | ✅ | `services/backend/app/core/langgraph/graph.py` |
+| Lifecycle Hooks (e.g., pre/post-tool) | Partial | `services/backend/app/core/langgraph/filesystem_middleware.py` |
+| Subagents | No (not explicit yet) | `services/backend/app/core/langgraph/graph.py` |
+| Memory, Prompts & Hooks | ✅ | `services/backend/app/services/memory.py`, `services/backend/app/core/langgraph/graph.py` |
+| Permissions and Safety Layer | Partial | `services/backend/app/core/langgraph/filesystem_middleware.py`, `services/backend/app/core/langgraph/tools/regulation_db_query.py` |
+| Built-in Skills | ✅ | `services/backend/app/core/langgraph/skills/canned_responses/SKILL.md` |
+| Dynamic System Prompt Assembly | Partial | `services/backend/app/core/langgraph/graph.py` |
+| Context Management (e.g., compaction) | ✅ | `services/backend/app/core/langgraph/graph.py` |
 
+Here's a rough architecture of the frontend/backend where the harness is used.
+
+```mermaid
+flowchart LR
+  UI[Web Frontend] -->|HTTP /api/v1| API[FastAPI Backend]
+  API -->|read/write| PG[(PostgreSQL + pgvector)]
+  API -->|upload document| S3[(S3/MinIO Blob Storage)]
+  API -->|cache/session| REDIS[(Redis)]
+  API -->|publish job| MQ[(RabbitMQ)]
+  MQ -->|consume job| INGEST[Ingestion Worker]
+  S3[(S3/MinIO Blob Storage)] -->|read/write files| INGEST
+  INGEST -->|update status + extractions| PG
+  API -->|query agent/tools| LGRAPH[LangGraph Agent]
+```
 
 ## Deployment Layout
 
@@ -39,3 +69,4 @@ This repository now includes a GitOps-oriented Azure deployment layout for the F
   - [Statute Analysis by Rafael Fryc](https://github.com/lawvable/awesome-legal-skills/tree/main/skills%2Fstatute-analysis-rafal-fryc)
   - [Canned Responses by Anthropic](https://github.com/lawvable/awesome-legal-skills/tree/main/skills/canned-responses-anthropic)
 - Can someone help me understand, the use/need for an OCR engine when using something like granite-docling? ([docling-project/docling#2726](https://github.com/docling-project/docling/discussions/2726))
+- [Prompting for frontend aesthetics](https://platform.claude.com/cookbook/coding-prompting-for-frontend-aesthetics)

@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: rag-app
+  namespace: argocd
+spec:
+  description: RAG platform and application deployments.
+  sourceRepos:
+    - "*"
+  destinations:
+    - namespace: rag-app-dev
+      server: https://kubernetes.default.svc
+    - namespace: rag-app-prod
+      server: https://kubernetes.default.svc
+    - namespace: rag-platform-dev
+      server: https://kubernetes.default.svc
+    - namespace: rag-platform-prod
+      server: https://kubernetes.default.svc
+    - namespace: argocd
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"

@@ -1,0 +1,65 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: rag-app-local
+
+resources:
+  - namespace.yaml
+  - ../../base
+  - ../../base/postgres
+  - ../../base/rabbitmq
+  - ../../base/minio
+  - postgres-init-sql.yaml
+  - postgres-secrets.yaml
+  - rabbitmq-secrets.yaml
+  - minio-secrets.yaml
+  - backend-secrets.yaml
+  - ingestion-secrets.yaml
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: backend-config
+    patch: |
+      - op: replace
+        path: /data/ENVIRONMENT
+        value: "local"
+      - op: replace
+        path: /data/DEBUG
+        value: "true"
+  - target:
+      kind: ConfigMap
+      name: ingestion-config
+    patch: |
+      - op: replace
+        path: /data/ENVIRONMENT
+        value: "local"
+  - target:
+      kind: Deployment
+      name: backend
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+  - target:
+      kind: Deployment
+      name: ingestion-worker
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+  - target:
+      kind: Job
+      name: backend-migrate
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+
+images:
+  - name: rag-app/backend
+    newName: gitops-argocd-k8s-fastapi-backend
+    newTag: latest
+  - name: rag-app/ingestion
+    newName: gitops-argocd-k8s-fastapi-ingestion-worker
+    newTag: latest

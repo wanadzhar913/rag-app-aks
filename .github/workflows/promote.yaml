@@ -1,0 +1,67 @@
+name: Promote Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Overlay to update
+        required: true
+        type: choice
+        options:
+          - development
+          - production
+      image_tag:
+        description: Immutable image tag to promote
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Update overlay image tags
+        env:
+          TARGET_ENV: ${{ github.event.inputs.environment }}
+          IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          target = Path("deploy/k8s/overlays") / os.environ["TARGET_ENV"] / "kustomization.yaml"
+          lines = target.read_text().splitlines()
+          updated = []
+          for line in lines:
+              if line.strip().startswith("newTag:"):
+                  indent = line[: len(line) - len(line.lstrip())]
+                  updated.append(f"{indent}newTag: {os.environ['IMAGE_TAG']}")
+              else:
+                  updated.append(line)
+          target.write_text("\n".join(updated) + "\n")
+          PY
+
+      - name: Commit promotion
+        env:
+          TARGET_ENV: ${{ github.event.inputs.environment }}
+          IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+        run: |
+          if git diff --quiet; then
+            echo "No promotion changes detected"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "deploy/k8s/overlays/${TARGET_ENV}/kustomization.yaml"
+          git commit -m "Promote ${TARGET_ENV} images to ${IMAGE_TAG}"
+          git push

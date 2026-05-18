@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rag-app-production
+  namespace: argocd
+spec:
+  project: rag-app
+  source:
+    repoURL: https://github.com/wanadzhar913/rag-app-aks.git
+    targetRevision: HEAD
+    path: deploy/k8s/overlays/production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: rag-app-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

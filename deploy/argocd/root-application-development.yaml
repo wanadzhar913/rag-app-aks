@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rag-root-development
+  namespace: argocd
+spec:
+  project: rag-app
+  source:
+    repoURL: https://github.com/wanadzhar913/rag-app-aks.git
+    targetRevision: HEAD
+    path: deploy/argocd/bootstrap/development
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -3,28 +3,20 @@ kind: Kustomization
 
 namespace: rag-app
 
-commonLabels:
-  app.kubernetes.io/part-of: rag-app
-  app.kubernetes.io/managed-by: argocd
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: rag-app
+      app.kubernetes.io/managed-by: argocd
 
 resources:
-  - namespace.yaml
   # Backend
   - backend/deployment.yaml
   - backend/service.yaml
   - backend/configmap.yaml
+  - backend/migration-job.yaml
   # Ingestion worker
   - ingestion/deployment.yaml
   - ingestion/configmap.yaml
-  # Postgres
-  - postgres/statefulset.yaml
-  - postgres/service.yaml
-  # RabbitMQ
-  - rabbitmq/statefulset.yaml
-  - rabbitmq/service.yaml
-  # MinIO
-  - minio/statefulset.yaml
-  - minio/service.yaml
 
 images:
   - name: rag-app/backend

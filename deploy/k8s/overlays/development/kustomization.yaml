@@ -3,10 +3,12 @@ kind: Kustomization
 
 namespace: rag-app-dev
 
-namePrefix: dev-
-
 resources:
+  - namespace.yaml
   - ../../base
+  - ingress.yaml
+  - backend-external-secret.yaml
+  - ingestion-external-secret.yaml
 
 patches:
   - target:
@@ -26,6 +28,18 @@ patches:
       - op: replace
         path: /data/DEBUG
         value: "true"
+      - op: replace
+        path: /data/POSTGRES_HOST
+        value: "ragapp-dev-psql.ragapp-dev.postgres.database.azure.com"
+      - op: replace
+        path: /data/RABBITMQ_HOST
+        value: "rabbitmq.rag-platform-dev.svc.cluster.local"
+      - op: replace
+        path: /data/S3_ENDPOINT_URL
+        value: "http://10.30.17.10:9000"
+      - op: replace
+        path: /data/S3_REGION
+        value: "ap-southeast-5"
   - target:
       kind: ConfigMap
       name: ingestion-config
@@ -33,9 +47,23 @@ patches:
       - op: replace
         path: /data/ENVIRONMENT
         value: "development"
+      - op: replace
+        path: /data/POSTGRES_HOST
+        value: "ragapp-dev-psql.ragapp-dev.postgres.database.azure.com"
+      - op: replace
+        path: /data/RABBITMQ_HOST
+        value: "rabbitmq.rag-platform-dev.svc.cluster.local"
+      - op: replace
+        path: /data/S3_ENDPOINT_URL
+        value: "http://10.30.17.10:9000"
+      - op: replace
+        path: /data/S3_REGION
+        value: "ap-southeast-5"
 
 images:
   - name: rag-app/backend
+    newName: replace-me.azurecr.io/rag-app/backend
     newTag: dev
   - name: rag-app/ingestion
+    newName: replace-me.azurecr.io/rag-app/ingestion
     newTag: dev
