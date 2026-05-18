@@ -96,6 +96,16 @@ services:
     volumes:
       - ./services/backend/app:/app/app
 
+  frontend:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_started
+
   ingestion-worker:
     build:
       context: ./services/ingestion

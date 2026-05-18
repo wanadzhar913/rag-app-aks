@@ -24,3 +24,6 @@ minio_data/
 # IDE
 .idea/
 .vscode/
+node_modules/
+web/dist/
+*.tsbuildinfo

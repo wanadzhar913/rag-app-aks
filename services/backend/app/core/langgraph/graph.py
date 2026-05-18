@@ -5,11 +5,14 @@ from typing import AsyncGenerator, Optional
 from urllib.parse import quote_plus
 
 from deepagents import create_deep_agent
+import deepagents.graph as deepagents_graph
 from deepagents.backends.filesystem import FilesystemBackend
 from langchain_core.messages import (
+    AIMessage,
     BaseMessage,
     HumanMessage,
     SystemMessage,
+    ToolMessage,
     convert_to_openai_messages,
 )
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -18,6 +21,7 @@ from langgraph.types import StateSnapshot
 from psycopg_pool import AsyncConnectionPool
 
 from app.core.config import Environment, settings
+from app.core.langgraph.filesystem_middleware import PreviewOnlyFilesystemMiddleware
 from app.core.langgraph.tools import tools
 from app.core.logging import logger
 from app.schemas import Message
@@ -140,6 +144,10 @@ class LangGraphAgent:
                 checkpointer = AsyncPostgresSaver(pool)
                 await checkpointer.setup()
 
+            # Prevent DeepAgents from materializing oversized tool results
+            # into `large_tool_results/call_*` files inside the project tree.
+            deepagents_graph.FilesystemMiddleware = PreviewOnlyFilesystemMiddleware
+
             self._graph = create_deep_agent(
                 model=self.model,
                 tools=tools,
@@ -183,6 +191,13 @@ class LangGraphAgent:
                     text_parts.append(str(block.get("text", "")))
             return "".join(text_parts).strip()
         return str(content).strip()
+
+    @staticmethod
+    def _truncate_tool_content(content: str, max_chars: int = 1800) -> str:
+        normalized = content.strip()
+        if len(normalized) <= max_chars:
+            return normalized
+        return normalized[: max_chars - 3].rstrip() + "..."
 
     @staticmethod
     def _message_signature(message: Message) -> tuple[str, str]:
@@ -438,10 +453,72 @@ class LangGraphAgent:
 
     @staticmethod
     def _extract_messages(messages: list[BaseMessage]) -> list[Message]:
-        openai_msgs = convert_to_openai_messages(messages)
         extracted_messages: list[Message] = []
-        for message in openai_msgs:
-            content = LangGraphAgent._coerce_text_content(message["content"])
-            if message["role"] in ("assistant", "user") and content:
-                extracted_messages.append(Message(role=message["role"], content=content))
+
+        for raw_message in messages:
+            if isinstance(raw_message, HumanMessage):
+                content = LangGraphAgent._coerce_text_content(raw_message.content)
+                if content:
+                    extracted_messages.append(Message(role="user", content=content))
+                continue
+
+            if isinstance(raw_message, ToolMessage):
+                content = LangGraphAgent._truncate_tool_content(
+                    LangGraphAgent._coerce_text_content(raw_message.content)
+                )
+                if content:
+                    tool_name = getattr(raw_message, "name", None) or "Tool"
+                    extracted_messages.append(
+                        Message(
+                            role="tool",
+                            title=f"{tool_name} result",
+                            content=content,
+                            metadata={
+                                "event": "result",
+                                "tool_name": tool_name,
+                                "tool_call_id": getattr(raw_message, "tool_call_id", None),
+                            },
+                        )
+                    )
+                continue
+
+            if isinstance(raw_message, AIMessage):
+                content = LangGraphAgent._coerce_text_content(raw_message.content)
+                if content:
+                    extracted_messages.append(Message(role="assistant", content=content))
+
+                for tool_call in getattr(raw_message, "tool_calls", []) or []:
+                    tool_name = tool_call.get("name", "Tool")
+                    tool_args = tool_call.get("args")
+                    if isinstance(tool_args, dict):
+                        serialized_args = ", ".join(
+                            f"{key}={value!r}" for key, value in list(tool_args.items())[:6]
+                        )
+                    else:
+                        serialized_args = str(tool_args or "")
+                    invocation_summary = (
+                        f"Invoked `{tool_name}`"
+                        + (f" with {serialized_args}" if serialized_args else "")
+                    )
+                    extracted_messages.append(
+                        Message(
+                            role="tool",
+                            title=f"Invoked {tool_name}",
+                            content=LangGraphAgent._truncate_tool_content(invocation_summary, max_chars=600),
+                            metadata={
+                                "event": "invocation",
+                                "tool_name": tool_name,
+                                "tool_call_id": tool_call.get("id"),
+                                "tool_args": tool_args,
+                            },
+                        )
+                    )
+                continue
+
+            openai_msgs = convert_to_openai_messages([raw_message])
+            for message in openai_msgs:
+                content = LangGraphAgent._coerce_text_content(message["content"])
+                if message["role"] in ("assistant", "user") and content:
+                    extracted_messages.append(Message(role=message["role"], content=content))
+
         return extracted_messages

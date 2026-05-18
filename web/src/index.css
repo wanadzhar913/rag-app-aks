@@ -1,0 +1,150 @@
+@import url("https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;700;900&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700&display=swap");
+@import "tailwindcss";
+
+:root {
+  --primary: #000b1d;
+  --primary-container: #002244;
+  --primary-soft: #d4e3ff;
+  --secondary-container: #fed65b;
+  --secondary: #735c00;
+  --surface: #faf9fc;
+  --surface-container-low: #f4f3f6;
+  --surface-container: #eeedf1;
+  --surface-container-highest: #e3e2e5;
+  --border: rgba(0, 11, 29, 0.12);
+  --text: #1a1c1e;
+  --text-muted: #43474e;
+  --shadow-sm: 0 6px 24px rgba(5, 18, 37, 0.08);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "Montserrat", sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.material-symbols-outlined {
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+}
+
+.material-symbols-outlined.filled {
+  font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(0, 34, 68, 0.14);
+  border-radius: 999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.legal-bond {
+  position: relative;
+  width: 210mm;
+  min-height: 297mm;
+  padding: 76px;
+  background: #ffffff;
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.05);
+  background-image:
+    linear-gradient(#f1f1f1 1.1rem, transparent 1.1rem),
+    linear-gradient(90deg, #f1f1f1 1.1rem, transparent 1.1rem);
+  background-size: 100% 1.2rem, 1.2rem 100%;
+}
+
+.watermark {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%) rotate(-45deg);
+  font-size: 7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: rgba(0, 11, 29, 0.03);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.signature-mark {
+  margin: 28px 0 10px;
+  font-family: "Brush Script MT", "Segoe Script", cursive;
+  font-size: 2.2rem;
+  color: rgba(0, 34, 68, 0.8);
+}
+
+.thinking-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--secondary-container);
+  animation: thinking-bounce 1.2s infinite ease-in-out;
+}
+
+.thinking-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.thinking-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes thinking-bounce {
+  0%,
+  80%,
+  100% {
+    transform: scale(0.55);
+    opacity: 0.55;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 1600px) {
+  .legal-bond {
+    transform: scale(0.9);
+    transform-origin: top center;
+    margin-bottom: -90px;
+  }
+}
+
+@media (max-width: 1320px) {
+  .legal-bond {
+    transform: none;
+    width: min(100%, 210mm);
+    min-height: auto;
+    padding: 48px 32px;
+    margin-bottom: 0;
+  }
+}
+
+@media print {
+  body {
+    background: #ffffff;
+  }
+
+  .legal-bond {
+    width: 100%;
+    min-height: auto;
+    box-shadow: none;
+    padding: 36px;
+  }
+}

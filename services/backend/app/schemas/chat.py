@@ -2,6 +2,7 @@
 
 import re
 from typing import (
+    Any,
     List,
     Literal,
 )
@@ -23,8 +24,13 @@ class Message(BaseModel):
 
     model_config = {"extra": "ignore"}
 
-    role: Literal["user", "assistant", "system"] = Field(..., description="The role of the message sender")
+    role: Literal["user", "assistant", "system", "tool"] = Field(
+        ...,
+        description="The role of the message sender",
+    )
     content: str = Field(..., description="The content of the message", min_length=1)
+    title: str | None = Field(default=None, description="Optional UI-friendly title")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Optional message metadata")
 
     @field_validator("content")
     @classmethod
